@@ -13,6 +13,11 @@ function App() {
   const { initialize, currentAccount } = useAccountsStore();
 
   useEffect(() => {
+  console.log('API URL:', import.meta.env.VITE_API_URL);
+  console.log('WS URL:', import.meta.env.VITE_WS_URL);
+}, []);
+
+  useEffect(() => {
     initialize();
   }, [initialize]);
 
