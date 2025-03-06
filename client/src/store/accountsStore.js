@@ -1,11 +1,7 @@
 // src/store/accountsStore.js
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import axios from 'axios';
-
-const api = axios.create({
-  baseURL: 'http://localhost:3001/api'
-});
+import api from '../services/api';
 
 const useAccountsStore = create(
   persist(
