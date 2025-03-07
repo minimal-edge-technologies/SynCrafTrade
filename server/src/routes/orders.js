@@ -2,6 +2,7 @@
 import express from 'express';
 import { angelOneService } from '../services/angelOneService.js';
 import { requireAuth } from '../middleware/auth.js';
+import { orderController } from '../controllers/orderController.js';
 
 const router = express.Router();
 
@@ -21,5 +22,7 @@ router.get('/', requireAuth, async (req, res) => {
     });
   }
 });
+
+router.get('/copy-history', requireAuth, orderController.getCopyTradeHistory);
 
 export default router;

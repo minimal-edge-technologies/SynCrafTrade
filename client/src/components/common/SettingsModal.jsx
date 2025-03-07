@@ -1,17 +1,21 @@
 // src/components/common/SettingsModal.jsx
 import { useState } from 'react';
 import useAccountsStore from '../../store/accountsStore';
-import { ACCOUNT_TYPES } from '../../constants/accountTypes';
+import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS } from '../../constants/accountTypes';
 import { X } from 'lucide-react';
 
 export default function SettingsModal({ account, isOpen, onClose }) {
   const { updateAccount } = useAccountsStore();
   const [settings, setSettings] = useState(account.settings);
+  const [accountType, setAccountType] = useState(account.accountType);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await updateAccount(account._id, { settings });
+      await updateAccount(account._id, { 
+        settings,
+        accountType // Include accountType in the update
+      });
       onClose();
     } catch (error) {
       console.error('Failed to update settings:', error);
@@ -31,6 +35,35 @@ export default function SettingsModal({ account, isOpen, onClose }) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Account Type Selection (NEW) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Account Type
+            </label>
+            <select
+              value={accountType}
+              onChange={(e) => setAccountType(e.target.value)}
+              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+            >
+              <option value={ACCOUNT_TYPES.PARENT}>{ACCOUNT_TYPE_LABELS[ACCOUNT_TYPES.PARENT]}</option>
+              <option value={ACCOUNT_TYPES.CHILD}>{ACCOUNT_TYPE_LABELS[ACCOUNT_TYPES.CHILD]}</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {accountType === ACCOUNT_TYPES.PARENT 
+                ? "Parent accounts can be copied from by child accounts" 
+                : "Child accounts can copy trades from parent accounts"}
+            </p>
+            
+            {account.accountType !== accountType && (
+              <div className="mt-2 p-3 bg-yellow-50 rounded text-xs text-yellow-800">
+                <p className="font-medium">Warning:</p>
+                {accountType === ACCOUNT_TYPES.PARENT 
+                  ? "Changing to a parent account will remove any parent connection and disable copy trading." 
+                  : "Changing to a child account will require setting up a parent connection."}
+              </div>
+            )}
+          </div>
+
           {/* Risk Management */}
           <div>
             <h3 className="text-lg font-medium mb-4">Risk Management</h3>
@@ -51,7 +84,7 @@ export default function SettingsModal({ account, isOpen, onClose }) {
                   className="mt-1 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md"
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  {account.accountType === ACCOUNT_TYPES.CHILD 
+                  {accountType === ACCOUNT_TYPES.CHILD 
                     ? "Maximum position size as % of your account regardless of parent position"
                     : "Maximum position size as % of account balance"}
                 </p>
@@ -95,14 +128,14 @@ export default function SettingsModal({ account, isOpen, onClose }) {
               placeholder="NIFTY, BANKNIFTY (comma separated)"
             />
             <p className="mt-1 text-xs text-gray-500">
-              {account.accountType === ACCOUNT_TYPES.CHILD 
+              {accountType === ACCOUNT_TYPES.CHILD 
                 ? "Only copy trades for these instruments. Leave empty to copy all"
                 : "Specific instruments allowed for trading. Leave empty to allow all"}
             </p>
           </div>
 
           {/* Copy Trading Settings (for Child accounts) */}
-          {account.accountType === ACCOUNT_TYPES.CHILD && (
+          {accountType === ACCOUNT_TYPES.CHILD && (
             <div>
               <label className="block text-sm font-medium text-gray-700">
                 Copy Ratio

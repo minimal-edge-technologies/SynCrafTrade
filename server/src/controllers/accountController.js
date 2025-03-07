@@ -164,7 +164,8 @@ export const accountController = {
 
   async updateAccount(req, res) {
     try {
-      const { parentAccount, copyTradingEnabled, settings } = req.body;
+      console.log('Update account request:', req.params.id, req.body);
+      const { parentAccount, copyTradingEnabled, settings, accountType } = req.body;
       const account = await Account.findById(req.params.id);
       
       if (!account) {
@@ -173,6 +174,18 @@ export const accountController = {
           error: 'Account not found'
         });
       }
+
+      // Add support for changing account type
+    if (accountType && Object.values(ACCOUNT_TYPES).includes(accountType)) {
+      account.accountType = accountType;
+      
+      // If changing to child type, make sure parent relation is maintained
+      // If changing to parent type, remove any parent relation
+      if (accountType === ACCOUNT_TYPES.PARENT) {
+        account.parentAccount = null;
+        account.copyTradingEnabled = false;
+      }
+    }
   
       // Validate parent account connection
       if (parentAccount) {

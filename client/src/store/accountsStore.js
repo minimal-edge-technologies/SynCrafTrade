@@ -132,6 +132,38 @@ const useAccountsStore = create(
             { ...state.currentAccount, balance } : state.currentAccount
         }));
       },
+      reauthenticateAccount: async (accountId, password, totp) => {
+        try {
+          set({ isLoading: true, error: null });
+          const response = await api.post('/auth/reauthenticate', {
+            accountId,
+            password,
+            totp
+          });
+          
+          if (response.data.success) {
+            set(state => ({
+              accounts: state.accounts.map(acc => 
+                acc._id === accountId 
+                  ? { ...acc, authStatus: 'ACTIVE', tokens: response.data.data.tokens } 
+                  : acc
+              ),
+              currentAccount: state.currentAccount?._id === accountId 
+                ? { ...state.currentAccount, authStatus: 'ACTIVE', tokens: response.data.data.tokens } 
+                : state.currentAccount,
+              isLoading: false
+            }));
+          }
+          
+          return response.data;
+        } catch (error) {
+          set({ 
+            error: error.response?.data?.error || error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },    
 
       deleteAccount: async (accountId) => {
         try {

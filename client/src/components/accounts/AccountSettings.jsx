@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useAccountsStore from '../../store/accountsStore';
 import { Loader2, ArrowLeft, Save } from 'lucide-react';
-import { ACCOUNT_TYPES } from '../../constants/accountTypes';
+import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS } from '../../constants/accountTypes';
 
 export default function AccountSettings() {
   const { id } = useParams();
@@ -18,11 +18,13 @@ export default function AccountSettings() {
     riskLimit: 2,
     allowedInstruments: []
   });
+  const [accountType, setAccountType] = useState('');
 
   useEffect(() => {
     const currentAccount = getAccountById(id);
     if (currentAccount) {
       setAccount(currentAccount);  // Set the account state
+      setAccountType(currentAccount.accountType); // Add this line to initialize account type
       if (currentAccount.settings) {
         setSettings(currentAccount.settings);
       }
@@ -32,7 +34,9 @@ export default function AccountSettings() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await updateAccount(id, { settings });
+      await updateAccount(id, { 
+        settings,
+        accountType });
       navigate('/accounts');
     } catch (error) {
       console.error('Failed to update settings:', error);
@@ -56,6 +60,13 @@ export default function AccountSettings() {
     );
   }
 
+  const handleSettingChange = (key, value) => {
+    setSettings(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
@@ -76,7 +87,36 @@ export default function AccountSettings() {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {account.accountType === ACCOUNT_TYPES.CHILD && (
+          {/* Account Type Selection (NEW) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Account Type
+            </label>
+            <select
+              value={accountType}
+              onChange={(e) => setAccountType(e.target.value)}
+              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+            >
+              <option value={ACCOUNT_TYPES.PARENT}>{ACCOUNT_TYPE_LABELS[ACCOUNT_TYPES.PARENT]}</option>
+              <option value={ACCOUNT_TYPES.CHILD}>{ACCOUNT_TYPE_LABELS[ACCOUNT_TYPES.CHILD]}</option>
+            </select>
+            <p className="mt-1 text-sm text-gray-500">
+              {accountType === ACCOUNT_TYPES.PARENT 
+                ? "Parent accounts can be copied from by child accounts" 
+                : "Child accounts can copy trades from parent accounts"}
+            </p>
+            
+            {account?.accountType !== accountType && (
+              <div className="mt-2 p-3 bg-yellow-50 rounded text-sm text-yellow-800">
+                <p className="font-medium">Warning:</p>
+                {accountType === ACCOUNT_TYPES.PARENT 
+                  ? "Changing to a parent account will remove any parent connection and disable copy trading." 
+                  : "Changing to a child account will require setting up a parent connection."}
+              </div>
+            )}
+          </div>
+
+          {accountType === ACCOUNT_TYPES.CHILD && (
             <div>
               <label className="block text-sm font-medium text-gray-700">Copy Ratio</label>
               <div className="mt-1">

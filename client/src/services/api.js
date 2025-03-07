@@ -93,22 +93,38 @@ api.interceptors.response.use(
           throw new Error('No refresh token available');
         }
 
-        const response = await refreshUserToken(refreshToken);
-        const newToken = response.data.jwtToken;
+        try {
+          const response = await refreshUserToken(refreshToken);
+          const newToken = response.data.jwtToken;
 
-        // Update account tokens in store
-        await useAccountsStore.getState().updateAccount(currentAccount._id, {
-          tokens: response.data
-        });
+          // Update account tokens in store
+          await useAccountsStore.getState().updateAccount(currentAccount._id, {
+            tokens: {
+              jwtToken: newToken,
+              refreshToken: response.data.refreshToken || currentAccount.tokens.refreshToken,
+              feedToken: response.data.feedToken || currentAccount.tokens.feedToken,
+              issuedAt: new Date()
+            }
+          });
 
-        processQueue(null, newToken);
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
-        return api(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError, null);
-        return Promise.reject(refreshError);
-      } finally {
+          processQueue(null, newToken);
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          isRefreshing = false;
+          return api(originalRequest);
+        } catch (refreshError) {
+          // Mark account as needing authentication
+          await useAccountsStore.getState().updateAccount(currentAccount._id, {
+            authStatus: 'REQUIRES_AUTH'
+          });
+          
+          processQueue(refreshError);
+          isRefreshing = false;
+          throw refreshError;
+        }
+      } catch (authError) {
+        processQueue(authError);
         isRefreshing = false;
+        return Promise.reject(authError);
       }
     }
 

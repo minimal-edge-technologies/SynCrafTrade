@@ -1,25 +1,49 @@
 // src/App.jsx
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './components/dashboard/Dashboard';
 import AccountsPage from './components/accounts/AccountsPage';  
 import AccountDetails from './components/accounts/AccountDetails';
 import AddAccountForm from './components/accounts/AddAccountForm';
 import Navigation from './components/common/Navigation';
+import ReauthenticationModal from './components/auth/ReauthenticationModal';
 import useAccountsStore from './store/accountsStore';
 import { wsService } from './services/websocket';
 
 function App() {
-  const { initialize, currentAccount } = useAccountsStore();
-
-  useEffect(() => {
-  console.log('API URL:', import.meta.env.VITE_API_URL);
-  console.log('WS URL:', import.meta.env.VITE_WS_URL);
-}, []);
+  // Add accounts to the destructured variables from the store
+  const { initialize, accounts, currentAccount } = useAccountsStore();
+  const [accountNeedingAuth, setAccountNeedingAuth] = useState(null);
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // Now accounts is properly defined
+  useEffect(() => {
+    const checkAuthStatus = () => {
+      // Don't show modal if one is already open
+      if (accountNeedingAuth) return;
+     
+      // First check current account
+      if (currentAccount?.authStatus === 'REQUIRES_AUTH') {
+        setAccountNeedingAuth(currentAccount);
+        return;
+      }
+     
+      // Then check other accounts
+      const needsAuth = accounts.find(acc => acc.authStatus === 'REQUIRES_AUTH');
+      if (needsAuth) {
+        setAccountNeedingAuth(needsAuth);
+      }
+    };
+   
+    // Check initially and every minute
+    checkAuthStatus();
+    const interval = setInterval(checkAuthStatus, 60000);
+   
+    return () => clearInterval(interval);
+  }, [accounts, currentAccount, accountNeedingAuth]);
 
   // Add WebSocket connection management
   useEffect(() => {
@@ -73,6 +97,14 @@ function App() {
             <Route path="/add-account" element={<AddAccountForm />} />
           </Routes>
         </main>
+        {/* Re-authentication Modal */}
+        {accountNeedingAuth && (
+          <ReauthenticationModal
+            isOpen={true}
+            onClose={() => setAccountNeedingAuth(null)}
+            account={accountNeedingAuth}
+          />
+        )}
       </div>
     </Router>
   );

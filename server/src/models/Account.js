@@ -21,7 +21,16 @@ const accountSchema = new mongoose.Schema({
   tokens: {
     jwtToken: String,
     refreshToken: String,
-    feedToken: String
+    feedToken: String,
+    issuedAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  authStatus: {
+    type: String,
+    enum: ['ACTIVE', 'REQUIRES_AUTH', 'DISABLED'],
+    default: 'ACTIVE'
   },
   accountType: {
     type: String,

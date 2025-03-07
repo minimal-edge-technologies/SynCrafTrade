@@ -7,6 +7,7 @@ import { Eye, Settings, Link, Activity, Users } from 'lucide-react';
 import SettingsModal from '../common/SettingsModal';
 import ConnectAccountModal from '../common/ConnectAccountModal';
 import { Switch } from '@headlessui/react'
+import CopyTradeHistory from './CopyTradeHistory';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -68,6 +69,9 @@ export default function Dashboard() {
             <p className="text-gray-500 text-center py-4">No child accounts found</p>
           )}
         </div>
+      </div>
+      <div className="mt-8">
+        <CopyTradeHistory />
       </div>
       {/* Settings Modal */}
       {selectedAccount && (

@@ -1,12 +1,12 @@
 // src/components/accounts/AccountDetails.jsx
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import useAccountsStore from '../../store/accountsStore';
 import OrdersTable from '../orders/OrdersTable';
 import PositionsTable from '../positions/PositionsTable';
-import { LogOut, Wallet, TrendingUp, AlertCircle } from 'lucide-react';
+import { LogOut, Wallet, TrendingUp, AlertCircle, Shield } from 'lucide-react';
 import { ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS } from '../../constants/accountTypes';
-
+import ReauthenticationModal from '../auth/ReauthenticationModal';
 
 export default function AccountDetails() {
   const { id } = useParams();
@@ -18,6 +18,7 @@ export default function AccountDetails() {
     isLoading,
     fetchAccount 
   } = useAccountsStore();
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -96,6 +97,18 @@ export default function AccountDetails() {
                 <span className="font-medium">{currentAccount.clientCode}</span>
               </div>
               <span className="text-sm font-medium text-gray-900">{currentAccount.name}</span>
+              {/* Add re-authentication button */}
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className={`flex items-center gap-2 px-3 py-1 text-sm rounded-md ${
+                  currentAccount.authStatus === 'REQUIRES_AUTH'
+                    ? 'text-red-600 hover:bg-red-50'
+                    : 'text-indigo-600 hover:bg-indigo-50'
+                }`}
+              >
+                <Shield className="w-4 h-4" />
+                {currentAccount.authStatus === 'REQUIRES_AUTH' ? 'Re-authenticate' : 'Authentication'}
+              </button>
               <button
                 onClick={() => navigate('/accounts')}
                 className="flex items-center gap-2 px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded-md"
@@ -159,6 +172,13 @@ export default function AccountDetails() {
             <PositionsTable />
           </div>
         </div>
+        {showAuthModal && (
+        <ReauthenticationModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          account={currentAccount}
+        />
+      )}
       </div>
     </div>
   );

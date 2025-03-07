@@ -71,6 +71,17 @@ export default function AccountsPage() {
                     <h3 className="text-lg font-medium text-gray-900">
                       {account.name || account.clientCode}
                     </h3>
+                    {/* Add auth status indicator */}
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium
+                      ${account.authStatus === 'ACTIVE' 
+                        ? 'bg-green-100 text-green-800' 
+                        : account.authStatus === 'REQUIRES_AUTH'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-yellow-100 text-yellow-800'}`}>
+                      {account.authStatus === 'ACTIVE' ? 'Authenticated' : 
+                      account.authStatus === 'REQUIRES_AUTH' ? 'Authentication Required' : 
+                      'Disabled'}
+                    </span>
                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium
                       ${account.accountType === ACCOUNT_TYPES.PARENT 
                         ? 'bg-purple-100 text-purple-800' 
