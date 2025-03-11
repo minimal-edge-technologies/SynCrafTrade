@@ -208,7 +208,9 @@ function ParentAccountCard({ account, openSettings }) {
     const navigate = useNavigate();
     const { accounts, updateAccount } = useAccountsStore();
     const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
-  
+    const [inputValue, setInputValue] = useState(account.settings?.copyRatio || 1);
+    const [isEditing, setIsEditing] = useState(false);
+
     const parentAccount = account.parentAccount 
       ? accounts.find(acc => acc._id === account.parentAccount) 
       : null;
@@ -230,6 +232,26 @@ function ParentAccountCard({ account, openSettings }) {
       }
       navigate(`/account-details/${account._id}`);
     };
+
+    // Handle local input changes without making API calls
+const handleLocalInputChange = (e) => {
+  setInputValue(e.target.value);
+};
+
+    // Only update the server when input is complete
+    const handleInputComplete = () => {
+      setIsEditing(false);
+      
+      // Now validate and update
+      const parsedValue = parseFloat(inputValue);
+      if (!isNaN(parsedValue) && parsedValue >= 0.1 && parsedValue <= 10) {
+        handleMultiplierChange(parsedValue);
+      } else {
+        // Reset to previous valid value if invalid
+        setInputValue(account.settings?.copyRatio || 1);
+      }
+    };
+
   
     const handleMultiplierChange = async (value) => {
       try {
@@ -273,13 +295,17 @@ function ParentAccountCard({ account, openSettings }) {
                 <div className="flex items-center space-x-2">
                   <label className="text-sm text-gray-600">Multiplier:</label>
                   <input
-                    type="number"
-                    value={account.settings?.copyRatio || 1}
-                    onChange={(e) => handleMultiplierChange(e.target.value)}
+                    type="text" // Change to text type for more flexible input
+                    value={isEditing ? inputValue : (account.settings?.copyRatio || 1)}
+                    onChange={handleLocalInputChange}
+                    onFocus={() => setIsEditing(true)}
+                    onBlur={handleInputComplete}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.target.blur(); // Complete editing on Enter key
+                      }
+                    }}
                     className="w-20 px-2 py-1 text-sm border rounded"
-                    step="0.1"
-                    min="0.1"
-                    max="10"
                   />
                 </div>
               )}
