@@ -165,12 +165,14 @@ export default function AccountDetails() {
         {/* Orders and Positions section */}
         <div className="space-y-6">
           <div className="bg-white shadow rounded-lg">
+            <PositionsTable />
+          </div>
+          
+          <div className="bg-white shadow rounded-lg">
             <OrdersTable />
           </div>
 
-          <div className="bg-white shadow rounded-lg">
-            <PositionsTable />
-          </div>
+          
         </div>
         {showAuthModal && (
         <ReauthenticationModal
