@@ -521,91 +521,187 @@ class WebSocketService {
   }
 
   async updateChildOrders(parentOrder, childAccounts) {
+    console.log(`[MODIFY] Starting update for child orders of parent order: ${parentOrder.orderId}`);
     // Find all related child orders
-    const orderRelations = await OrderRelation.find({ 
-      parentOrderId: parentOrder.orderId 
+    const orderRelations = await OrderRelation.find({
+      parentOrderId: parentOrder.orderId
     });
-    
+
+    console.log(`[MODIFY] Found ${orderRelations.length} child orders to update`);
+
     for (const relation of orderRelations) {
       try {
         const childAccount = childAccounts.find(acc => acc._id.toString() === relation.childAccountId.toString());
-        if (!childAccount) continue;
-  
+        if (!childAccount) {
+          console.log(`[MODIFY] Child account not found for relation, skipping`);
+          continue;
+        }
+
+        console.log(`[MODIFY] Processing update for child account: ${childAccount.clientCode} (${childAccount._id})`);
+
         // Calculate new quantity if needed
         const newQuantity = this.calculateChildQuantity(
           parentOrder.quantity,
-          childAccount.settings.copyRatio,
-          childAccount.settings.maxPositionSize,
-          childAccount.balance.net
+          childAccount.settings?.copyRatio || 1.0,
+          childAccount.settings?.maxPositionSize || 10,
+          childAccount.balance?.net || 1000
         );
-  
-        // Get decrypted credentials (your existing credential retrieval code)
+
+        // Check if anything has actually changed
+        const quantityChanged = relation.quantity !== newQuantity;
+        const priceChanged = Math.abs(relation.price - parentOrder.price) > 0.01;
+        const statusChanged = relation.status.toLowerCase() !== parentOrder.status.toLowerCase();
+
+
+        if (!quantityChanged && !priceChanged && !statusChanged) {
+          console.log(`[MODIFY] No meaningful changes for order ${relation.childOrderId}, skipping`);
+          continue;
+        }
+
+        console.log(`[MODIFY] Changes for order ${relation.childOrderId}:`);
+        if (quantityChanged) console.log(`  - Quantity: ${relation.quantity} → ${newQuantity}`);
+        if (priceChanged) console.log(`  - Price: ${relation.price} → ${parentOrder.price}`);
+        if (statusChanged) console.log(`  - Status: ${relation.status} → ${parentOrder.status}`);
+
+        // Get decrypted credentials
         const decryptedCreds = await decryptCredentials(childAccount.credentials);
-        
+
         // Initialize API
         const childApi = new SmartAPI({
           api_key: decryptedCreds.apiKey
         });
+
+        if (!childAccount.tokens?.jwtToken) {
+          console.log(`[MODIFY] No token available for ${childAccount.clientCode}, skipping`);
+          continue;
+        }
+
         childApi.setAccessToken(childAccount.tokens.jwtToken);
-  
-        // Modify child order
+
+        // Get the symboltoken if not already available
+        let symboltoken = parentOrder.symboltoken;
+
+        if (!symboltoken) {
+          try {
+            console.log(`[MODIFY] Looking up symboltoken for ${parentOrder.symbol}`);
+            const searchResult = await childApi.searchScrip(parentOrder.symbol);
+
+            if (searchResult.data && searchResult.data.length > 0) {
+              // Find the exact match for exchange and symbol
+              const instrument = searchResult.data.find(
+                item => item.tradingsymbol === parentOrder.symbol &&
+                  item.exchange === (parentOrder.exchange || "NSE")
+              );
+
+              if (instrument && instrument.token) {
+                symboltoken = instrument.token;
+                console.log(`[MODIFY] Found symboltoken: ${symboltoken} for ${parentOrder.symbol}`);
+              } else {
+                console.log(`[MODIFY] Could not find exact match for ${parentOrder.symbol}`);
+              }
+            }
+          } catch (searchError) {
+            console.error(`[MODIFY] Error looking up symboltoken: ${searchError}`);
+          }
+        }
+
+        if (!symboltoken) {
+          console.log(`[MODIFY] Cannot proceed without symboltoken for ${parentOrder.symbol}`);
+          continue;
+        }
+
+        // Modify child order - INCLUDE THE SYMBOLTOKEN
         const modifyParams = {
           variety: "NORMAL",
           orderid: relation.childOrderId,
           quantity: newQuantity.toString(),
-          price: parentOrder.price.toString()
+          price: parentOrder.price.toString(),
+          symboltoken: symboltoken,  // This is the crucial addition
+          tradingsymbol: parentOrder.symbol,  // Also add this for completeness
+          exchange: parentOrder.exchange || "NSE",  // And this
+          ordertype: parentOrder.orderType || "LIMIT",
+          duration: "DAY"
         };
-        
+
+        console.log(`[MODIFY] Sending modification request:`, JSON.stringify(modifyParams));
+
         const response = await childApi.modifyOrder(modifyParams);
-        console.log(`[MODIFY] Modified order ${relation.childOrderId} for ${childAccount.clientCode}:`, response);
-        
-        // Update relation status
-        relation.status = 'MODIFIED';
-        relation.quantity = newQuantity;
-        relation.price = parentOrder.price;
-        relation.lastUpdated = new Date();
-        await relation.save();
-        
+        console.log(`[MODIFY] Modification response for ${relation.childOrderId} for ${childAccount.clientCode}:`, response);
+
+        if (response.status) {
+          // Update relation status
+          relation.status = 'MODIFIED';
+          relation.quantity = newQuantity;
+          relation.price = parentOrder.price;
+          relation.lastUpdated = new Date();
+          await relation.save();
+
+          console.log(`[MODIFY] Successfully updated order in database`);
+        } else {
+          console.error(`[MODIFY] API returned error:`, response);
+        }
       } catch (error) {
-        console.error(`[MODIFY] Failed to update child order ${relation.childOrderId}:`, error);
+        console.error(`[MODIFY] Failed to update child order ${relation?.childOrderId}:`, error);
       }
     }
   }
 
   async cancelChildOrders(parentOrder, childAccounts) {
+    console.log(`[CANCEL] Starting cancellation for child orders of parent order: ${parentOrder.orderId}`);
+
     // Find all related child orders
-    const orderRelations = await OrderRelation.find({ 
-      parentOrderId: parentOrder.orderId 
+    const orderRelations = await OrderRelation.find({
+      parentOrderId: parentOrder.orderId
     });
-    
+
+    console.log(`[CANCEL] Found ${orderRelations.length} child orders to cancel`);
+
     for (const relation of orderRelations) {
       try {
         const childAccount = childAccounts.find(acc => acc._id.toString() === relation.childAccountId.toString());
-        if (!childAccount) continue;
-  
-        // Get decrypted credentials (your existing credential retrieval code)
+        if (!childAccount) {
+          console.log(`[CANCEL] Child account not found for relation, skipping`);
+          continue;
+        }
+
+        console.log(`[CANCEL] Processing cancellation for child account: ${childAccount.clientCode} (${childAccount._id})`);
+
+        // Get decrypted credentials
         const decryptedCreds = await decryptCredentials(childAccount.credentials);
-        
+
         // Initialize API
         const childApi = new SmartAPI({
           api_key: decryptedCreds.apiKey
         });
+
+        if (!childAccount.tokens?.jwtToken) {
+          console.log(`[CANCEL] No token available for ${childAccount.clientCode}, skipping`);
+          continue;
+        }
+
         childApi.setAccessToken(childAccount.tokens.jwtToken);
-  
+
         // Cancel child order
         const cancelParams = {
           variety: "NORMAL",
           orderid: relation.childOrderId
         };
-        
+
+        console.log(`[CANCEL] Sending cancellation request:`, JSON.stringify(cancelParams));
+
         const response = await childApi.cancelOrder(cancelParams);
-        console.log(`[CANCEL] Cancelled order ${relation.childOrderId} for ${childAccount.clientCode}:`, response);
-        
-        // Update relation status
-        relation.status = 'CANCELLED';
-        relation.lastUpdated = new Date();
-        await relation.save();
-        
+        console.log(`[CANCEL] Cancellation response for ${relation.childOrderId} for ${childAccount.clientCode}:`, response);
+
+        if (response.status) {
+          // Update relation status
+          relation.status = 'CANCELLED';
+          relation.lastUpdated = new Date();
+          await relation.save();
+
+          console.log(`[CANCEL] Successfully cancelled order and updated in database`);
+        } else {
+          console.error(`[CANCEL] API returned error:`, response);
+        }
       } catch (error) {
         console.error(`[CANCEL] Failed to cancel child order ${relation.childOrderId}:`, error);
       }
@@ -643,6 +739,11 @@ class WebSocketService {
   async fetchParentAccountUpdates(parentInfo) {
     try {
       console.log(`[WS] Fetching orders for monitored parent account: ${parentInfo.clientCode}`);
+
+      // Initialize processed orders set if it doesn't exist
+      if (!this.processedOrdersMap) {
+        this.processedOrdersMap = new Map();
+      }
 
       // Load the parent account from DB
       const parentAccount = await Account.findById(parentInfo.accountId);
@@ -694,25 +795,123 @@ class WebSocketService {
 
         const orders = orderResponse.data || [];
 
-        // Store current orders for next comparison
-        parentInfo.previousOrders = orders;
+        // Create a map of previous orders for easier comparison
+        const prevOrderMap = new Map();
+        previousOrders.forEach(order => {
+          prevOrderMap.set(order.orderid, {
+            status: order.status,
+            quantity: order.quantity,
+            price: order.price || '0',
+            averageprice: order.averageprice || '0',
+            filledshares: order.filledshares || '0'
+          });
+        });
 
         // Check for new completed orders
         console.log(`[WS] Checking ${orders.length} orders from parent ${parentAccount.clientCode}`);
 
-        const newOrders = orders.filter(order => {
-          // Find if this order already existed
-          const existingOrder = previousOrders.find(prev => prev.orderid === order.orderid);
+        // Track new or changed orders
+        const ordersToProcess = [];
 
-          // It's a new order (any status) or status changed
-          return !existingOrder || existingOrder.status !== order.status;
-        });
+        for (const order of orders) {
+          const orderId = order.orderid;
+          if (!orderId) continue;
 
-        // Process each new completed order
-        for (const newOrder of newOrders) {
-          console.log(`[WS] New order detected in parent account: ${newOrder.orderid}, status: ${newOrder.status}`);
-          await this.handleParentOrder(parentInfo.accountId, newOrder);
+          // Check if we've already processed this order with this status
+          const processKey = `${orderId}-${order.status}`;
+          if (this.processedOrdersMap.has(processKey)) {
+            continue;
+          }
+
+          // Get previous order data
+          const prevOrder = prevOrderMap.get(orderId);
+
+          // Compare current order with previous state
+          let hasChanged = false;
+          let changeReason = '';
+
+          if (!prevOrder) {
+            // This is a completely new order
+            hasChanged = true;
+            changeReason = 'New order';
+          } else {
+            // Check each field for changes and log specifics
+            if (prevOrder.status !== order.status) {
+              hasChanged = true;
+              changeReason = `Status changed: ${prevOrder.status} -> ${order.status}`;
+            }
+
+            // Convert to strings for safer comparison
+            const prevQuantity = String(prevOrder.quantity || '');
+            const currQuantity = String(order.quantity || '');
+            if (prevQuantity !== currQuantity) {
+              hasChanged = true;
+              changeReason = `Quantity changed: ${prevQuantity} -> ${currQuantity}`;
+            }
+
+            const prevPrice = String(prevOrder.price || '0');
+            const currPrice = String(order.price || '0');
+            if (prevPrice !== currPrice) {
+              hasChanged = true;
+              changeReason = `Price changed: ${prevPrice} -> ${currPrice}`;
+            }
+
+            const prevAvgPrice = String(prevOrder.averageprice || '0');
+            const currAvgPrice = String(order.averageprice || '0');
+            if (prevAvgPrice !== currAvgPrice) {
+              hasChanged = true;
+              changeReason = `Avg price changed: ${prevAvgPrice} -> ${currAvgPrice}`;
+            }
+          }
+
+          if (hasChanged) {
+            console.log(`[WS] Order ${orderId} has changed: ${changeReason}`);
+
+            // Check if we need to process this order
+            const alreadyExists = await OrderRelation.findOne({ parentOrderId: orderId });
+
+            if (alreadyExists) {
+              // Check if anything significant has changed that requires an update
+              const significantChange =
+                (prevOrder?.status !== order.status &&
+                  ['complete', 'cancelled', 'rejected'].includes(order.status?.toLowerCase())) ||
+                (prevOrder?.quantity !== order.quantity);
+
+              if (significantChange) {
+                console.log(`[WS] Significant change detected for existing order ${orderId}`);
+                ordersToProcess.push(order);
+              } else {
+                console.log(`[WS] Order ${orderId} has minor changes, skipping update`);
+              }
+            } else {
+              // New order that hasn't been copied yet
+              ordersToProcess.push(order);
+            }
+
+            // Mark this order as processed with current status
+            this.processedOrdersMap.set(processKey, Date.now());
+
+            // Keep the map from growing too large
+            if (this.processedOrdersMap.size > 1000) {
+              const keysToDelete = Array.from(this.processedOrdersMap.entries())
+                .sort((a, b) => a[1] - b[1])
+                .slice(0, 200)
+                .map(entry => entry[0]);
+
+              keysToDelete.forEach(key => this.processedOrdersMap.delete(key));
+            }
+          }
         }
+
+        // Store current orders for next comparison
+        parentInfo.previousOrders = JSON.parse(JSON.stringify(orders)); // Deep copy
+
+        // Process each new/changed order
+        for (const orderToProcess of ordersToProcess) {
+          console.log(`[WS] Processing order: ${orderToProcess.orderid}, status: ${orderToProcess.status}`);
+          await this.handleParentOrder(parentInfo.accountId, orderToProcess);
+        }
+
       } catch (apiError) {
         // Handle token expiration
         if (apiError.message.includes('token') || apiError.message.includes('unauthorized')) {
@@ -812,8 +1011,7 @@ class WebSocketService {
 
       // Get previous orders to compare with new ones
       const previousOrders = client.previousOrders || [];
-      const previousOrderIds = new Set(previousOrders.map(order => order.orderid));
-
+      
       // Properly capture all three responses
       const [orders, positions, rmsResponse] = await Promise.all([
         this.smartApi.getOrderBook(),
@@ -842,29 +1040,73 @@ class WebSocketService {
           return; // Exit early for first poll
         }
 
-        // Find orders that weren't in the previous poll (only after first poll)
-        const newlyAddedOrders = orders.data.filter(order =>
-          !previousOrderIds.has(order.orderid)
-        );
+        // Create map of previous orders for efficient lookup
+        const prevOrderMap = new Map();
+        previousOrders.forEach(order => {
+          prevOrderMap.set(order.orderid, {
+            status: order.status || order.orderstatus,
+            quantity: order.quantity,
+            price: order.price || '0',
+            averageprice: order.averageprice || '0'
+          });
+        });
 
-        if (newlyAddedOrders.length > 0) {
-          console.log(`[WS] Found ${newlyAddedOrders.length} new orders added since last poll`);
+        // Find orders that are new or changed
+        const ordersToProcess = [];
 
-          // Only process complete orders
-          const newOrders = newlyAddedOrders;
+        for (const order of orders.data) {
+          const orderId = order.orderid;
+          if (!orderId) continue;
 
-          console.log(`[WS] Of which ${newOrders.length} are completed`);
+          // Check if this is a new order
+          const prevOrder = prevOrderMap.get(orderId);
+          if (!prevOrder) {
+            console.log(`[WS] New order detected: ${orderId}`);
+            ordersToProcess.push(order);
+            continue;
+          }
 
-          // Process each new complete order
-          for (const newOrder of newOrders) {
-            console.log(`[WS] Processing new order: ${newOrder.orderid}, status: ${newOrder.status || newOrder.orderstatus}`);
-            await this.handleParentOrder(client.accountId, newOrder);
+          // Check for status changes
+          const prevStatus = prevOrder.status || '';
+          const currentStatus = order.status || order.orderstatus || '';
+          if (prevStatus !== currentStatus) {
+            console.log(`[WS] Order status changed: ${orderId} (${prevStatus} -> ${currentStatus})`);
+            ordersToProcess.push(order);
+            continue;
+          }
+
+          // Check for quantity changes
+          const prevQuantity = String(prevOrder.quantity || '');
+          const currQuantity = String(order.quantity || '');
+          if (prevQuantity !== currQuantity) {
+            console.log(`[WS] Order quantity changed: ${orderId} (${prevQuantity} -> ${currQuantity})`);
+            ordersToProcess.push(order);
+            continue;
+          }
+
+          // Check for price changes
+          const prevPrice = String(prevOrder.price || prevOrder.averageprice || '0');
+          const currPrice = String(order.price || order.averageprice || '0');
+          if (prevPrice !== currPrice) {
+            console.log(`[WS] Order price changed: ${orderId} (${prevPrice} -> ${currPrice})`);
+            ordersToProcess.push(order);
+            continue;
+          }
+        }
+
+        // Process the orders that need to be handled
+        if (ordersToProcess.length > 0) {
+          console.log(`[WS] Found ${ordersToProcess.length} orders to process`);
+
+          for (const orderToProcess of ordersToProcess) {
+            console.log(`[WS] Processing order: ${orderToProcess.orderid}, status: ${orderToProcess.status || orderToProcess.orderstatus}`);
+            await this.handleParentOrder(client.accountId, orderToProcess);
           }
         }
       }
 
       // Store current orders for next comparison
-      client.previousOrders = orders.data || [];
+      client.previousOrders = JSON.parse(JSON.stringify(orders.data || []));
 
       // Update account balance in database
       if (rmsResponse && rmsResponse.data) {
@@ -933,6 +1175,13 @@ class WebSocketService {
         return;
       }
 
+      // Check if we should skip processing
+      const processKey = `${order.orderid}-processed`;
+      if (this.processedOrdersMap && this.processedOrdersMap.has(processKey)) {
+        console.log(`[COPY] Order ${order.orderid} has already been fully processed, skipping`);
+        return;
+      }
+
       // Convert Angel One order to our format
       const normalizedOrder = {
         orderId: order.orderid,
@@ -948,11 +1197,64 @@ class WebSocketService {
         accountId
       };
 
-      console.log(`[COPY] Normalized order:`, JSON.stringify(normalizedOrder));
+      // console.log(`[COPY] Normalized order:`, JSON.stringify(normalizedOrder));
+      console.log(`[DEBUG] Order status: ${normalizedOrder.status}, Status lower: ${normalizedOrder.status?.toLowerCase()}`);
 
-      // Copy order to children
-      console.log(`[COPY] Copying order ${normalizedOrder.orderId} to ${childAccounts.length} child accounts`);
-      await this.copyOrderToChildren(normalizedOrder, childAccounts);
+      // Check the database to see if this order exists
+      const existingRelation = await OrderRelation.findOne({
+        parentOrderId: normalizedOrder.orderId
+      });
+
+      if (existingRelation) {
+        // Check if we need to update or cancel
+        const currentStatus = normalizedOrder.status?.toLowerCase() || '';
+        const existingStatus = existingRelation.status?.toLowerCase() || '';
+
+        console.log(`[DEBUG] Current status: ${currentStatus}, Existing status: ${existingStatus}`);
+
+        // Check if order is cancelled
+        if (currentStatus === 'cancelled' || currentStatus === 'rejected') {
+          console.log(`[COPY] Order ${normalizedOrder.orderId} has been cancelled, cancelling child orders`);
+          await this.cancelChildOrders(normalizedOrder, childAccounts);
+          return;
+        }
+
+        // Check for status changes
+        if (currentStatus !== existingStatus) {
+          console.log(`[COPY] Status change for existing order ${normalizedOrder.orderId}: ${existingStatus} -> ${currentStatus}`);
+
+          if (currentStatus === 'complete') {
+            // Just update the status for completed orders
+            console.log(`[COPY] Marking order ${normalizedOrder.orderId} as complete in database`);
+            existingRelation.status = 'COMPLETE';
+            await existingRelation.save();
+          } else {
+            // For other status changes, update child orders
+            await this.updateChildOrders(normalizedOrder, childAccounts);
+          }
+        } else {
+          // Check for quantity/price changes
+          const quantityChanged = existingRelation.quantity !== normalizedOrder.quantity;
+          const priceChanged = Math.abs(existingRelation.price - normalizedOrder.price) > 0.01;
+
+          if (quantityChanged || priceChanged) {
+            console.log(`[COPY] Modification detected for order ${normalizedOrder.orderId}`);
+            await this.updateChildOrders(normalizedOrder, childAccounts);
+          } else {
+            console.log(`[COPY] No significant changes for order ${normalizedOrder.orderId}, skipping update`);
+          }
+        }
+      } else {
+        // This is a new order - copy to children
+        console.log(`[COPY] New order ${normalizedOrder.orderId} to copy`);
+        await this.copyOrderToChildren(normalizedOrder, childAccounts);
+      }
+
+      // Mark as fully processed
+      if (this.processedOrdersMap &&
+        ['complete', 'cancelled', 'rejected'].includes(normalizedOrder.status?.toLowerCase())) {
+        this.processedOrdersMap.set(processKey, Date.now());
+      }
     } catch (error) {
       console.error('[COPY] Error handling parent order:', error);
     }
